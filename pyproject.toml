@@ -24,8 +24,8 @@ dependencies = [
 ]
 
 [tool.cibuildwheel]
-build = "cp310-* cp311-* cp312-* cp313-*"
-skip = "pp* *i686* *musllinux* *aarch64*"
+build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
+skip = "pp* *i686* *musllinux*"
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_28"
