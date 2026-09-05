@@ -1,0 +1,4 @@
+include cc_csf.cpp
+include README.md
+include pyproject.toml
+recursive-include src *.h *.cpp

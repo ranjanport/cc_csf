@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "pybind11>=2.10", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cc_csf"
+version = "1.0.0"
+description = "High-performance Zero-Copy OpenMP Pybind11 Cloth Simulation Filter (CSF)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Aman Ranjan", email = "er.amanranjan@gmail.com" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Development Status :: 5 - Production/Stable",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+dependencies = [
+    "numpy>=1.20",
+]
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-*"
+skip = "pp* *i686* *musllinux* *aarch64*"
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
