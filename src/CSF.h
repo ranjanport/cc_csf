@@ -108,7 +108,7 @@ public:
     // pointcloud and write the cloth particles coordinates
     void do_filtering(std::vector<int>& groundIndexes,
                       std::vector<int>& offGroundIndexes,
-                      bool exportCloth=true);
+                      bool exportCloth=false);
     
 
     std::vector<double> do_cloth_export();
