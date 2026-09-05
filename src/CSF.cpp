@@ -107,11 +107,8 @@ void CSF::readPointsFromFile(std::string filename) {
 
 Cloth CSF::do_cloth() {
     // Terrain
-    std::cout << "[" << this->index << "] Configuring terrain..." << std::endl;
     csf::Point bbMin, bbMax;
     point_cloud.computeBoundingBox(bbMin, bbMax);
-    std::cout << "[" << this->index << "]  - bbMin: " << bbMin.x << " " << bbMin.y << " " << bbMin.z << std::endl;
-    std::cout << "[" << this->index << "]  - bbMax: " << bbMax.x << " " << bbMax.y << " " << bbMax.z << std::endl;
 
     double cloth_y_height = 0.05;
 
@@ -130,9 +127,6 @@ Cloth CSF::do_cloth() {
         std::floor((bbMax.z - bbMin.z) / params.cloth_resolution)
     ) + 2 * clothbuffer_d;
 
-    std::cout << "[" << this->index << "] Configuring cloth..." << std::endl;
-    std::cout << "[" << this->index << "]  - width: " << width_num << " "
-         << "height: " << height_num << std::endl;
 
     Cloth cloth(
         origin_pos,
@@ -146,13 +140,11 @@ Cloth CSF::do_cloth() {
         params.time_step
     );
 
-    std::cout << "[" << this->index << "] Rasterizing..." << std::endl;
     Rasterization::RasterTerrian(cloth, point_cloud, cloth.getHeightvals());
 
     double time_step2 = params.time_step * params.time_step;
     double gravity    = 0.2;
 
-    std::cout << "[" << this->index << "] Simulating..." << std::endl;
     cloth.addForce(Vec3(0, -gravity, 0) * time_step2);
 
     // boost::progress_display pd(params.interations);
@@ -168,7 +160,6 @@ Cloth CSF::do_cloth() {
     }
 
     if (params.bSloopSmooth) {
-        std::cout << "[" << this->index << "]  - post handle..." << std::endl;
         cloth.movableFilter();
     }
 
