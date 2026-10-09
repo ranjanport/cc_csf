@@ -45,6 +45,9 @@ Cloth::Cloth(const Vec3& _origin_pos,
 
     // creating particles in a grid of particles from (0,0,0) to
     // (width,-height,0) creating particles in a grid
+    #ifdef CSF_USE_OPENMP
+    #pragma omp parallel for collapse(2) schedule(static)
+    #endif
     for (int i = 0; i < num_particles_width; i++) {
         for (int j = 0; j < num_particles_height; j++) {
             Vec3 pos(origin_pos.f[0] + i *step_x,
@@ -52,9 +55,10 @@ Cloth::Cloth(const Vec3& _origin_pos,
                      origin_pos.f[2] + j *step_y);
 
             // insert particle in column i at j'th row
-            particles[j * num_particles_width + i]       = Particle(pos, time_step2);
-            particles[j * num_particles_width + i].pos_x = i;
-            particles[j * num_particles_width + i].pos_y = j;
+            int idx = j * num_particles_width + i;
+            particles[idx]       = Particle(pos, time_step2);
+            particles[idx].pos_x = i;
+            particles[idx].pos_y = j;
         }
     }
 
@@ -125,7 +129,11 @@ double Cloth::timeStep() {
 }
 
 void Cloth::addForce(const Vec3 direction) {
-    for (std::size_t i = 0; i < particles.size(); i++) {
+    int particleCount = static_cast<int>(particles.size());
+    #ifdef CSF_USE_OPENMP
+    #pragma omp parallel for schedule(static)
+    #endif
+    for (int i = 0; i < particleCount; i++) {
         particles[i].addForce(direction);
     }
 }
