@@ -17,7 +17,10 @@
 
 #include "Rasterization.h"
 #include <queue>
-
+#include <vector>
+#ifdef CSF_USE_OPENMP
+#include <omp.h>
+#endif
 
 double Rasterization::findHeightValByScanline(Particle *p, Cloth& cloth) {
     int xpos = p->pos_x;
@@ -51,47 +54,38 @@ double Rasterization::findHeightValByScanline(Particle *p, Cloth& cloth) {
             return crresHeight;
     }
 
-    return findHeightValByNeighbor(p);
+    return findHeightValByNeighbor(p, cloth);
 }
 
-
-double Rasterization::findHeightValByNeighbor(Particle *p) {
+double Rasterization::findHeightValByNeighbor(Particle *p, Cloth& cloth) {
     std::queue<Particle *>  nqueue;
-    std::vector<Particle *> pbacklist;
-    int neiborsize = p->neighborsList.size();
+    int cloth_size = cloth.getSize();
+    std::vector<bool> visited(cloth_size, false);
 
-    for (int i = 0; i < neiborsize; i++) {
-        p->isVisited = true;
-        nqueue.push(p->neighborsList[i]);
+    int p_idx = p->pos_y * cloth.num_particles_width + p->pos_x;
+    visited[p_idx] = true;
+
+    for (std::size_t i = 0; i < p->neighborsList.size(); i++) {
+        Particle *nbr = p->neighborsList[i];
+        int nbr_idx = nbr->pos_y * cloth.num_particles_width + nbr->pos_x;
+        visited[nbr_idx] = true;
+        nqueue.push(nbr);
     }
 
-    // iterate over the nqueue
     while (!nqueue.empty()) {
         Particle *pneighbor = nqueue.front();
         nqueue.pop();
-        pbacklist.push_back(pneighbor);
 
         if (pneighbor->nearestPointHeight > MIN_INF) {
-            for (std::size_t i = 0; i < pbacklist.size(); i++)
-                pbacklist[i]->isVisited = false;
-
-            while (!nqueue.empty()) {
-                Particle *pp = nqueue.front();
-                pp->isVisited = false;
-                nqueue.pop();
-            }
-
             return pneighbor->nearestPointHeight;
-        } else {
-            int nsize = pneighbor->neighborsList.size();
+        }
 
-            for (int i = 0; i < nsize; i++) {
-                Particle *ptmp = pneighbor->neighborsList[i];
-
-                if (!ptmp->isVisited) {
-                    ptmp->isVisited = true;
-                    nqueue.push(ptmp);
-                }
+        for (std::size_t i = 0; i < pneighbor->neighborsList.size(); i++) {
+            Particle *ptmp = pneighbor->neighborsList[i];
+            int idx = ptmp->pos_y * cloth.num_particles_width + ptmp->pos_x;
+            if (!visited[idx]) {
+                visited[idx] = true;
+                nqueue.push(ptmp);
             }
         }
     }
@@ -102,19 +96,72 @@ double Rasterization::findHeightValByNeighbor(Particle *p) {
 void Rasterization::RasterTerrian(Cloth          & cloth,
                                   csf::PointCloud& pc,
                                   std::vector<double> & heightVal) {
+    std::size_t pc_size = pc.size();
+    int cloth_size = cloth.getSize();
 
-    for (std::size_t i = 0; i < pc.size(); i++) {
+#ifdef CSF_USE_OPENMP
+    int max_threads = omp_get_max_threads();
+
+    std::vector<std::vector<double>> th_dist(max_threads, std::vector<double>(cloth_size, MAX_INF));
+    std::vector<std::vector<double>> th_height(max_threads, std::vector<double>(cloth_size, MIN_INF));
+    std::vector<std::vector<std::size_t>> th_idx(max_threads, std::vector<std::size_t>(cloth_size, 0));
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        #pragma omp for schedule(static)
+        for (std::size_t i = 0; i < pc_size; i++) {
+            double pc_x = pc[i].x;
+            double pc_z = pc[i].z;
+
+            double deltaX = pc_x - cloth.origin_pos.f[0];
+            double deltaZ = pc_z - cloth.origin_pos.f[2];
+            int col = int(deltaX / cloth.step_x + 0.5);
+            int row = int(deltaZ / cloth.step_y + 0.5);
+
+            if (col >= 0 && col < cloth.num_particles_width &&
+                row >= 0 && row < cloth.num_particles_height) {
+                int p_idx = row * cloth.num_particles_width + col;
+                Particle *pt = cloth.getParticle1d(p_idx);
+                double pc2particleDist = SQUARE_DIST(
+                    pc_x, pc_z,
+                    pt->getPos().f[0],
+                    pt->getPos().f[2]
+                );
+
+                if (pc2particleDist < th_dist[tid][p_idx]) {
+                    th_dist[tid][p_idx] = pc2particleDist;
+                    th_height[tid][p_idx] = pc[i].y;
+                    th_idx[tid][p_idx] = i;
+                }
+            }
+        }
+    }
+
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < cloth_size; i++) {
+        Particle *pt = cloth.getParticle1d(i);
+        for (int t = 0; t < max_threads; ++t) {
+            if (th_dist[t][i] < pt->tmpDist) {
+                pt->tmpDist = th_dist[t][i];
+                pt->nearestPointHeight = th_height[t][i];
+                pt->nearestPointIndex = th_idx[t][i];
+            }
+        }
+    }
+#else
+    for (std::size_t i = 0; i < pc_size; i++) {
         double pc_x = pc[i].x;
         double pc_z = pc[i].z;
 
         double deltaX = pc_x - cloth.origin_pos.f[0];
         double deltaZ = pc_z - cloth.origin_pos.f[2];
-        int    col    = int(deltaX / cloth.step_x + 0.5);
-        int    row    = int(deltaZ / cloth.step_y + 0.5);
+        int col = int(deltaX / cloth.step_x + 0.5);
+        int row = int(deltaZ / cloth.step_y + 0.5);
 
-        if ((col >= 0) && (row >= 0)) {
+        if (col >= 0 && col < cloth.num_particles_width &&
+            row >= 0 && row < cloth.num_particles_height) {
             Particle *pt = cloth.getParticle(col, row);
-            pt->correspondingLidarPointList.push_back(i);
             double pc2particleDist = SQUARE_DIST(
                 pc_x, pc_z,
                 pt->getPos().f[0],
@@ -128,12 +175,14 @@ void Rasterization::RasterTerrian(Cloth          & cloth,
             }
         }
     }
-    heightVal.resize(cloth.getSize());
+#endif
 
-    // #ifdef CSF_USE_OPENMP
-    // #pragma omp parallel for
-    // #endif
-    for (int i = 0; i < cloth.getSize(); i++) {
+    heightVal.resize(cloth_size);
+
+#ifdef CSF_USE_OPENMP
+    #pragma omp parallel for schedule(dynamic, 64)
+#endif
+    for (int i = 0; i < cloth_size; i++) {
         Particle *pcur          = cloth.getParticle1d(i);
         double    nearestHeight = pcur->nearestPointHeight;
 
