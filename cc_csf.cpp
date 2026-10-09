@@ -2,6 +2,10 @@
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 #include "CSF.h"
+#ifdef CSF_USE_OPENMP
+#include <omp.h>
+#endif
+#include <cstring>
 
 namespace py = pybind11;
 
@@ -18,6 +22,14 @@ public:
         csf.params.class_threshold = class_threshold;
         csf.params.rigidness = rigidness;
     }
+
+    void set_num_threads(int threads) {
+#ifdef CSF_USE_OPENMP
+        if (threads > 0) {
+            omp_set_num_threads(threads);
+        }
+#endif
+    }
     
     void set_point_cloud(py::array_t<double> xyz) {
         py::buffer_info buf = xyz.request();
@@ -25,13 +37,13 @@ public:
             throw std::runtime_error("Input array must be Nx3");
         }
         
-        int rows = buf.shape[0];
+        int rows = static_cast<int>(buf.shape[0]);
         double *ptr = static_cast<double *>(buf.ptr);
         
         csf.getPointCloud().resize(rows);
         
         #ifdef CSF_USE_OPENMP
-        #pragma omp parallel for
+        #pragma omp parallel for schedule(static)
         #endif
         for (int i = 0; i < rows; i++) {
             double px = ptr[i * 3 + 0];
@@ -47,19 +59,28 @@ public:
         }
     }
     
-    std::vector<int> do_filtering() {
+    py::array_t<int> do_filtering() {
         std::vector<int> ground_indexes, off_ground_indexes;
-        csf.do_filtering(ground_indexes, off_ground_indexes);
-        return ground_indexes;
+        {
+            py::gil_scoped_release release;
+            csf.do_filtering(ground_indexes, off_ground_indexes);
+        }
+        
+        py::array_t<int> result(static_cast<py::ssize_t>(ground_indexes.size()));
+        if (!ground_indexes.empty()) {
+            std::memcpy(result.mutable_data(), ground_indexes.data(), ground_indexes.size() * sizeof(int));
+        }
+        return result;
     }
 };
 
 PYBIND11_MODULE(cc_csf, m) {
-    m.doc() = "Zero-copy Pybind11 wrapper for CloudCompare CSF";
+    m.doc() = "Zero-copy Pybind11 wrapper for CloudCompare CSF with OpenMP";
     
     py::class_<CSFWrapper>(m, "CSF")
         .def(py::init<>())
         .def("set_params", &CSFWrapper::set_params)
+        .def("set_num_threads", &CSFWrapper::set_num_threads)
         .def("set_point_cloud", &CSFWrapper::set_point_cloud)
         .def("do_filtering", &CSFWrapper::do_filtering);
 }
